@@ -1,0 +1,272 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+// Main Restaurant Registration
+model Restaurant {
+  id              String   @id @default(auto()) @map("_id") @db.ObjectId
+  name            String   @unique
+  ownerName       String
+  phone           String
+  email           String
+  license         String
+  cgst            String?
+  sgst            String?
+  address         String
+  registrationCode String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime? @updatedAt
+  
+  branches        Branch[]
+  users           User[]
+}
+
+// Branches
+model Branch {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  name          String
+  address       String
+  phone         String
+  restaurantId  String   @db.ObjectId
+  
+  // Online platform credentials (encrypted JSON string)
+  swiggyConfig  String?  // JSON: {apiKey, restaurantId, isActive}
+  zomatoConfig  String?  // JSON: {clientId, restaurantId, isActive}
+  dunzoConfig   String?  // JSON: {apiKey, clientId, isActive}
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime? @updatedAt
+  
+  restaurant    Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  tables        Table[]
+  users         User[]
+  orders        Order[]
+  tips          Tip[]
+}
+
+
+// Users (Chairman, Cashier, Waiter, Kitchen)
+model User {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  name          String
+  email         String   @unique
+  password      String
+  phone         String
+  address       String
+  aadharNumber  String?
+  photo         String?
+  role          String   // "CHAIRMAN", "CASHIER", "WAITER", "KITCHEN"
+  assignedHours String?  // for employees
+  restaurantId  String   @db.ObjectId
+  branchId      String?  @db.ObjectId
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime? @updatedAt
+  
+  restaurant    Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  branch        Branch?    @relation(fields: [branchId], references: [id])
+  orders        Order[]
+  tips          Tip[]
+}
+
+// Tables
+model Table {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  tableNumber   String
+  tableName     String?
+  isAvailable   Boolean  @default(true)
+  branchId      String   @db.ObjectId
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime? @updatedAt
+  
+  branch        Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  orders        Order[]
+}
+
+// Categories
+model Category {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  name          String
+  description   String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime? @updatedAt
+  
+  menuItems     MenuItem[]
+}
+
+// Menu Items
+model MenuItem {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  name          String
+  description   String?
+  categoryId    String   @db.ObjectId
+  hasSizes      Boolean  @default(false)
+  smallPrice    Float?
+  mediumPrice   Float?
+  largePrice    Float?
+  regularPrice  Float?   // for items without sizes
+  isAvailable   Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime? @updatedAt
+  
+  category      Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  orderItems    OrderItem[]
+}
+
+// Orders
+model Order {
+  id              String   @id @default(auto()) @map("_id") @db.ObjectId
+  orderNumber     String   @unique
+  orderType       String   // "DINE_IN", "ONLINE"
+  tableId         String?  @db.ObjectId
+  branchId        String   @db.ObjectId
+  userId          String   @db.ObjectId
+  customerName    String?
+  customerPhone   String?
+  status          String   @default("PENDING")
+  subtotal        Float
+  discount        Float    @default(0)
+  discountCoupon  String?
+  cgst            Float    @default(0)
+  sgst            Float    @default(0)
+  grandTotal      Float
+  isBillGenerated Boolean  @default(false)
+  kotSentAt       DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime? @updatedAt
+  
+  table           Table?   @relation(fields: [tableId], references: [id])
+  branch          Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  user            User     @relation(fields: [userId], references: [id])
+  orderItems      OrderItem[]
+  payment         Payment?
+  onlineOrder     OnlineOrder?
+  kots            KOT[]  // Add this line if missing
+}
+
+
+// Order Items
+model OrderItem {
+  id          String    @id @default(auto()) @map("_id") @db.ObjectId
+  orderId     String    @db.ObjectId
+  menuItemId  String    @db.ObjectId
+  size        String?   // SMALL, MEDIUM, LARGE (null for regular)
+  quantity    Int
+  price       Float
+  totalPrice  Float
+  kotSent     Boolean   @default(false) // Track if sent to kitchen
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime? @updatedAt
+  
+  order       Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  menuItem    MenuItem  @relation(fields: [menuItemId], references: [id])
+}
+
+// KOT (Kitchen Order Tickets)
+// KOT (Kitchen Order Tickets)
+model KOT {
+  id          String    @id @default(auto()) @map("_id") @db.ObjectId
+  kotNumber   String    @unique
+  orderId     String    @db.ObjectId
+  items       String    // JSON string of items
+  status      String    @default("PENDING") // PENDING, PREPARING, READY
+  printedAt   DateTime  @default(now())
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime? @updatedAt
+  
+  order       Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+}
+
+
+// Payment
+model Payment {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  orderId       String   @unique @db.ObjectId
+  paymentMode   String   // "CASH", "UPI", "CARD", "DEBT"
+  amountPaid    Float
+  tipAmount     Float    @default(0)
+  balanceAmount Float    @default(0)
+  debtId        String?  @db.ObjectId
+  paymentStatus String   @default("COMPLETED") // "COMPLETED", "PENDING", "DEBT"
+  createdAt     DateTime @default(now())
+  
+  order         Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  debt          Debt?    @relation(fields: [debtId], references: [id])
+}
+
+// Debt
+model Debt {
+  id              String   @id @default(auto()) @map("_id") @db.ObjectId
+  customerName    String
+  customerPhone   String
+  totalDebt       Float
+  paidAmount      Float    @default(0)
+  remainingAmount Float
+  paymentStatus   String   @default("PENDING") // "PENDING", "PARTIAL", "PAID"
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime? @updatedAt
+  
+  payments        Payment[]
+}
+
+// Tips
+// Tips
+model Tip {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId        String   @db.ObjectId // employee who received tip
+  branchId      String   @db.ObjectId
+  tableNumber   String
+  amount        Float
+  paymentMode   String   // "CASH", "UPI", "CARD"
+  isSettled     Boolean  @default(false) // Track if tip was physically given
+  settledAt     DateTime? // When tip was marked as settled
+  settledBy     String?  @db.ObjectId // Cashier who settled the tip
+  date          DateTime @default(now())
+  createdAt     DateTime @default(now())
+  
+  user          User     @relation(fields: [userId], references: [id])
+  branch        Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+}
+
+
+// Online Orders (Swiggy, Zomato)
+// Your existing OnlineOrder model is good, but let's verify the branch connection
+model OnlineOrder {
+  id              String   @id @default(auto()) @map("_id") @db.ObjectId
+  orderId         String   @unique @db.ObjectId
+  platform        String   // "SWIGGY", "ZOMATO", "UBER_EATS", "DUNZO"
+  platformOrderId String   @unique
+  customerName    String
+  customerPhone   String?
+  deliveryAddress String?
+  orderStatus     String   @default("RECEIVED") // "RECEIVED", "ACCEPTED", "PREPARING", "READY", "PICKED_UP", "DELIVERED", "CANCELLED"
+  acceptedAt      DateTime?
+  readyAt         DateTime?
+  pickedUpAt      DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime? @updatedAt
+  
+  order           Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+}
+
+
+// Discount Coupons
+model DiscountCoupon {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  code          String   @unique
+  description   String?
+  discountType  String   // "PERCENTAGE", "FIXED"
+  discountValue Float
+  minOrderValue Float?
+  maxDiscount   Float?
+  validFrom     DateTime
+  validUntil    DateTime
+  isActive      Boolean  @default(true)
+  usageCount    Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime? @updatedAt
+}
